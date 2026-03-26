@@ -8,6 +8,12 @@ use crate::kuadrant::{
 };
 use std::collections::{BTreeMap, HashSet};
 
+pub enum PipelineState {
+    InProgress(Pipeline),
+    Completed,
+    Terminated,
+}
+
 pub struct Pipeline {
     pub ctx: ReqRespCtx,
     task_queue: Vec<Box<dyn Task>>,
@@ -71,7 +77,7 @@ impl Pipeline {
         }
     }
 
-    pub fn eval(mut self) -> Option<Self> {
+    pub fn eval(mut self) -> PipelineState {
         let tasks_to_process: Vec<_> = self.task_queue.drain(..).collect();
 
         for task in tasks_to_process {
@@ -108,9 +114,9 @@ impl Pipeline {
                     self.task_queue.clear();
                     self.execute_teardown();
                     return if self.deferred_tasks.is_empty() {
-                        None
+                        PipelineState::Terminated
                     } else {
-                        Some(self)
+                        PipelineState::InProgress(self)
                     };
                 }
             }
@@ -121,16 +127,16 @@ impl Pipeline {
                 self.execute_teardown();
             }
             if self.deferred_tasks.is_empty() {
-                None
+                PipelineState::Completed
             } else {
-                Some(self)
+                PipelineState::InProgress(self)
             }
         } else {
-            Some(self)
+            PipelineState::InProgress(self)
         }
     }
 
-    pub fn digest(mut self, token_id: u32, status_code: u32, response_size: usize) -> Option<Self> {
+    pub fn digest(mut self, token_id: u32, status_code: u32, response_size: usize) -> PipelineState {
         if let Some(pending) = self.deferred_tasks.remove(&token_id) {
             match self.ctx.set_grpc_response_data(status_code, response_size) {
                 Ok(_) => {}
